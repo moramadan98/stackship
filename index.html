@@ -437,7 +437,7 @@
   <div class="nav-right">
     <a href="#how" class="nav-link">How it works</a>
     <a href="#features" class="nav-link">Features</a>
-    <a href="#waitlist" class="nav-cta">Join waitlist</a>
+    <a href="https://tally.so/r/GxYN2e" target="_blank" class="nav-cta">Join waitlist</a>
   </div>
 </nav>
 
@@ -450,7 +450,7 @@
     in seconds — with security scoring and line-by-line explanations.
   </p>
   <div class="hero-actions">
-    <a href="#waitlist" class="btn-primary">
+    <a href="https://tally.so/r/GxYN2e" target="_blank" class="btn-primary">
       <span>→</span> Join the waitlist
     </a>
     <a href="#how" class="btn-secondary">
@@ -642,7 +642,7 @@
         id="emailInput"
         autocomplete="email"
       >
-      <button class="submit-btn" onclick="submitWaitlist()">Join waitlist →</button>
+      <button class="submit-btn" onclick="openTally()">Join waitlist →</button>
     </div>
     <div class="success-msg" id="successMsg">
       ✓ You're on the list. We'll reach out soon.
@@ -672,22 +672,13 @@
   }, { threshold: 0.12 });
   document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 
-  /* Waitlist form */
-  function submitWaitlist() {
+  /* Waitlist — opens Tally form */
+  function openTally() {
     const input = document.getElementById('emailInput');
-    const msg   = document.getElementById('successMsg');
     const email = input.value.trim();
-    if (!email || !email.includes('@')) {
-      input.style.borderColor = '#E53E3E';
-      setTimeout(() => input.style.borderColor = '', 1200);
-      return;
-    }
-    input.disabled = true;
-    document.querySelector('.submit-btn').disabled = true;
-    document.querySelector('.submit-btn').textContent = '✓ Done';
-    msg.style.display = 'block';
-    /* Replace the action below with your Tally/Formspree/Airtable endpoint */
-    /* fetch('https://formspree.io/f/YOUR_ID', { method:'POST', body: JSON.stringify({email}), headers:{'Content-Type':'application/json'} }); */
+    const base = 'https://tally.so/r/GxYN2e';
+    const url  = email ? base + '?email=' + encodeURIComponent(email) : base;
+    window.open(url, '_blank');
   }
 
   /* Smooth score bar animation on scroll */
