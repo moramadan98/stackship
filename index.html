@@ -634,18 +634,8 @@
   <div class="waitlist-inner reveal">
     <h2>Be first to ship<br>with StackShip.</h2>
     <p>Early access is free. Join the waitlist and get notified when we launch.</p>
-    <div class="form-row">
-      <input
-        type="email"
-        class="email-input"
-        placeholder="you@company.com"
-        id="emailInput"
-        autocomplete="email"
-      >
+    <div>
       <button class="submit-btn" onclick="openTally()">Join waitlist →</button>
-    </div>
-    <div class="success-msg" id="successMsg">
-      ✓ You're on the list. We'll reach out soon.
     </div>
     <div class="waitlist-meta">
       <span>No credit card</span>
@@ -674,11 +664,7 @@
 
   /* Waitlist — opens Tally form */
   function openTally() {
-    const input = document.getElementById('emailInput');
-    const email = input.value.trim();
-    const base = 'https://tally.so/r/GxYN2e';
-    const url  = email ? base + '?email=' + encodeURIComponent(email) : base;
-    window.open(url, '_blank');
+    window.open('https://tally.so/r/GxYN2e', '_blank');
   }
 
   /* Smooth score bar animation on scroll */
