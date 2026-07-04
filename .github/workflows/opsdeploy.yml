@@ -1,0 +1,183 @@
+# .github/workflows/opsdeploy.yml
+#
+# OpsDeploy-generated deploy workflow.
+# Placeholders wrapped in <<...>> are filled by the orchestrator per deploy
+# (packages/core/src/render-workflow.ts):
+#   demo-stackship          = {tenant}-{project}, e.g. acme-shop
+#   main            = deploy branch, e.g. main
+#   demo-stackship      = self-hosted runner label = APP_NAME
+#   30000          = port allocated from the central registry (§3.2)
+#   8080    = port the app listens on inside the container
+#   http://127.0.0.1:8200        = https://vault.opsdeploy.io
+#   demo-stackship        = Vault JWT role bound to this repo+branch
+#   secret/data/demo/stackship      = Vault KV path for this app's env, e.g. secret/data/acme/shop
+#   /       = client-defined health path, e.g. /health   (D7)
+#   200     = client-defined expected status, e.g. 200   (D7)
+#   https://app.opsdeploy.io/api/deployments/cmr6vj6hc000ghh1owgx004nh/health-callback      = control-plane health-callback endpoint for this deployment
+#   https://opsdeploy.io/health-callback = OIDC audience the callback route verifies against
+#
+# Deviation from /reference/opsdeploy-workflow.yml: that draft never reported
+# the health result back to the control plane, so `deployments.health` (and
+# therefore the "await_health" orchestrator step / opsdeploy-wait CLI) would
+# never resolve. Added the OIDC-token + callback steps at the end to close
+# that loop — same GitHub OIDC mechanism already used for the Vault step
+# (D13), so no new static secret is introduced.
+
+name: Deploy demo-stackship
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# W4: OIDC. GitHub issues a short-lived JWT per run; no static secret stored.
+permissions:
+  id-token: write
+  contents: read
+
+# Prevent two runs of the same app from racing on the same machine.
+concurrency:
+  group: deploy-demo-stackship
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build & deploy demo-stackship
+    runs-on: [self-hosted, demo-stackship]
+
+    env:
+      APP_NAME: demo-stackship
+      APP_PORT: "30000"
+      CONTAINER_PORT: "8080"
+      NETWORK: net-demo-stackship
+      # W3: isolated workspace path, never a shared fixed dir.
+      APP_DIR: /srv/opsdeploy/demo-stackship
+      VAULT_ADDR: http://127.0.0.1:8200
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # W3: isolated build context, cleaned per run.
+      - name: Sync code to isolated app directory
+        run: |
+          sudo mkdir -p "$APP_DIR"
+          sudo rsync -a --delete ./ "$APP_DIR"/
+
+      # W4: authenticate to Vault via OIDC and pull secrets at runtime.
+      # No .env file is ever written to disk on the host.
+      - name: Import secrets from Vault (OIDC)
+        id: secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ env.VAULT_ADDR }}
+          method: jwt
+          role: demo-stackship
+          # Fixed audience, independent of VAULT_ADDR (which varies per
+          # machine — often a private address like 127.0.0.1). Must match
+          # bound_audiences in infra/vault-add-tenant.sh exactly.
+          jwtGithubAudience: https://vault.opsdeploy.io
+          # exportEnv:false -> values go to step outputs, not the shell env,
+          # so they aren't printed and don't leak into child processes broadly.
+          exportEnv: false
+          secrets: |
+            secret/data/demo/stackship * | APP_
+
+      # Write env to an in-memory tmpfs file that we delete right after run.
+      # Never persisted to the host disk.
+      - name: Materialize env (ephemeral)
+        run: |
+          RUNTIME_ENV=$(mktemp -p /dev/shm 2>/dev/null || mktemp)
+          echo "RUNTIME_ENV=$RUNTIME_ENV" >> "$GITHUB_ENV"
+          # vault-action exposes pulled keys as step outputs prefixed APP_
+          cat > "$RUNTIME_ENV" <<'EOF'
+          ${{ toJSON(steps.secrets.outputs) }}
+          EOF
+          chmod 600 "$RUNTIME_ENV"
+
+      # W2: build on the run machine (D3, accepted MVP limitation).
+      - name: Build image
+        run: |
+          cd "$APP_DIR"
+          docker build -t "$APP_NAME:${{ github.sha }}" -t "$APP_NAME:current" .
+
+      # W5: capture the currently-running image so we can roll back.
+      - name: Record previous image for rollback
+        id: prev
+        run: |
+          PREV=$(docker inspect --format '{{.Image}}' "$APP_NAME" 2>/dev/null || echo "")
+          echo "prev_image=$PREV" >> "$GITHUB_OUTPUT"
+
+      # W1: run on the isolated per-app network, no host network, no privileged.
+      # Start the NEW container under a temporary name so the old one keeps
+      # serving until health passes.
+      - name: Start new container
+        run: |
+          docker rm -f "${APP_NAME}-new" 2>/dev/null || true
+          docker run -d \
+            --name "${APP_NAME}-new" \
+            --network "$NETWORK" \
+            --restart unless-stopped \
+            --memory=512m --cpus=1 \
+            --env-file "$RUNTIME_ENV" \
+            -p 127.0.0.1:$APP_PORT:$CONTAINER_PORT \
+            "$APP_NAME:${{ github.sha }}"
+
+      # W5: health check on the CLIENT-defined endpoint (D7).
+      - name: Health check
+        id: health
+        run: |
+          ok=""
+          for i in $(seq 1 15); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' \
+              "http://127.0.0.1:$APP_PORT/" || echo 000)
+            if [ "$code" = "200" ]; then ok=1; break; fi
+            sleep 3
+          done
+          if [ -z "$ok" ]; then echo "unhealthy"; exit 1; fi
+
+      # Success: promote new -> live name, drop the old container.
+      - name: Promote new container
+        if: steps.health.outcome == 'success'
+        run: |
+          docker rm -f "$APP_NAME" 2>/dev/null || true
+          docker rename "${APP_NAME}-new" "$APP_NAME"
+
+      # W5: rollback. If health failed, remove the new container.
+      # The old one was never stopped, so the site stays up on the old version.
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "Deploy failed — rolling back. Old container left running."
+          docker rm -f "${APP_NAME}-new" 2>/dev/null || true
+
+      # Report the outcome back to the control plane so the "await_health"
+      # orchestrator step (and the dashboard's live pipeline view) can
+      # resolve. Authenticated with a fresh OIDC token — the callback route
+      # verifies it against GitHub's JWKS and checks `sub` matches this
+      # exact repo+branch, so no static secret is needed (D13's pattern
+      # reused, not a second credential).
+      - name: Mint control-plane OIDC token
+        if: always()
+        id: oidc
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: return await core.getIDToken('https://opsdeploy.io/health-callback')
+
+      - name: Report health to control plane
+        if: always()
+        run: |
+          STATUS="unhealthy"
+          if [ "${{ steps.health.outcome }}" = "success" ]; then STATUS="healthy"; fi
+          curl -sf -X POST "https://app.opsdeploy.io/api/deployments/cmr6vj6hc000ghh1owgx004nh/health-callback" \
+            -H "Authorization: Bearer ${{ steps.oidc.outputs.result }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"status\":\"$STATUS\",\"commitSha\":\"${{ github.sha }}\"}"
+
+      # Always wipe the ephemeral env file.
+      - name: Cleanup ephemeral env
+        if: always()
+        run: |
+          [ -n "$RUNTIME_ENV" ] && shred -u "$RUNTIME_ENV" 2>/dev/null || rm -f "$RUNTIME_ENV" 2>/dev/null || true
+          docker image prune -f >/dev/null 2>&1 || true
