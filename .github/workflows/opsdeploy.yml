@@ -72,6 +72,11 @@ jobs:
         with:
           url: ${{ env.VAULT_ADDR }}
           method: jwt
+          # infra/vault-setup-jwt.sh mounts the JWT backend at a custom path
+          # (github-actions/), not Vault's default (jwt/) — vault-action logs
+          # in against whatever this is, defaulting to "jwt" if omitted, so
+          # without it every login 403s against a mount that isn't ours.
+          path: github-actions
           role: demo-stackship
           # Fixed audience, independent of VAULT_ADDR (which varies per
           # machine — often a private address like 127.0.0.1). Must match
