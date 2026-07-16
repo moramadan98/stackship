@@ -13,7 +13,7 @@
 #   secret/data/demo/stackship      = Vault KV path for this app's env, e.g. secret/data/acme/shop
 #   /       = client-defined health path, e.g. /health   (D7)
 #   200     = client-defined expected status, e.g. 200   (D7)
-#   https://app.opsdeploy.io/api/deployments/cmr6vj6hc000ghh1owgx004nh/health-callback      = control-plane health-callback endpoint for this deployment
+#   https://app.opsdeploy.io/api/deployments/cmrmqtbar000dgjtne2ye5vvw/health-callback      = control-plane health-callback endpoint for this deployment
 #   https://opsdeploy.io/health-callback = OIDC audience the callback route verifies against
 #
 # Deviation from /reference/opsdeploy-workflow.yml: that draft never reported
@@ -175,7 +175,7 @@ jobs:
         run: |
           STATUS="unhealthy"
           if [ "${{ steps.health.outcome }}" = "success" ]; then STATUS="healthy"; fi
-          curl -sf -X POST "https://app.opsdeploy.io/api/deployments/cmr6vj6hc000ghh1owgx004nh/health-callback" \
+          curl -sf -X POST "https://app.opsdeploy.io/api/deployments/cmrmqtbar000dgjtne2ye5vvw/health-callback" \
             -H "Authorization: Bearer ${{ steps.oidc.outputs.result }}" \
             -H "Content-Type: application/json" \
             -d "{\"status\":\"$STATUS\",\"commitSha\":\"${{ github.sha }}\"}"
