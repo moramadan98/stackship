@@ -3,17 +3,17 @@
 # OpsDeploy-generated deploy workflow.
 # Placeholders wrapped in <<...>> are filled by the orchestrator per deploy
 # (packages/core/src/render-workflow.ts):
-#   demo-stackship          = {tenant}-{project}, e.g. acme-shop
+#   amr-stackship          = {tenant}-{project}, e.g. acme-shop
 #   main            = deploy branch, e.g. main
-#   demo-stackship      = self-hosted runner label = APP_NAME
-#   30002          = port allocated from the central registry (§3.2)
+#   amr-stackship      = self-hosted runner label = APP_NAME
+#   30000          = port allocated from the central registry (§3.2)
 #   8080    = port the app listens on inside the container
 #   http://127.0.0.1:8200        = https://vault.opsdeploy.io
-#   demo-stackship        = Vault JWT role bound to this repo+branch
-#   secret/data/demo/stackship      = Vault KV path for this app's env, e.g. secret/data/acme/shop
+#   amr-stackship        = Vault JWT role bound to this repo+branch
+#   secret/data/amr/stackship      = Vault KV path for this app's env, e.g. secret/data/acme/shop
 #   /       = client-defined health path, e.g. /health   (D7)
 #   200     = client-defined expected status, e.g. 200   (D7)
-#   https://app.opsdeploy.io/api/deployments/cmrnm7e6h00061cnqmndsc8z5/health-callback      = control-plane health-callback endpoint for this deployment
+#   https://app.opsdeploy.io/api/deployments/cmrs04ch7000mzzik9ou2vhp7/health-callback      = control-plane health-callback endpoint for this deployment
 #   https://opsdeploy.io/health-callback = OIDC audience the callback route verifies against
 #
 # Deviation from /reference/opsdeploy-workflow.yml: that draft never reported
@@ -23,7 +23,7 @@
 # that loop — same GitHub OIDC mechanism already used for the Vault step
 # (D13), so no new static secret is introduced.
 
-name: Deploy demo-stackship
+name: Deploy amr-stackship
 
 on:
   push:
@@ -37,26 +37,31 @@ permissions:
 
 # Prevent two runs of the same app from racing on the same machine.
 concurrency:
-  group: deploy-demo-stackship
+  group: deploy-amr-stackship
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Build & deploy demo-stackship
-    runs-on: [self-hosted, demo-stackship]
+    name: Build & deploy amr-stackship
+    runs-on: [self-hosted, amr-stackship]
 
     env:
-      APP_NAME: demo-stackship
-      APP_PORT: "30002"
+      APP_NAME: amr-stackship
+      APP_PORT: "30000"
       CONTAINER_PORT: "8080"
-      NETWORK: net-demo-stackship
+      NETWORK: net-amr-stackship
       # W3: isolated workspace path, never a shared fixed dir.
-      APP_DIR: /srv/opsdeploy/demo-stackship
+      APP_DIR: /srv/opsdeploy/amr-stackship
       VAULT_ADDR: http://127.0.0.1:8200
 
     steps:
+      # ref is the branch name for a normal deploy (checks out its HEAD) or a
+      # specific commit SHA for a rollback to a past version. Rendered per
+      # deploy by the orchestrator (render-workflow.ts).
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       # W3: isolated build context, cleaned per run.
       - name: Sync code to isolated app directory
@@ -77,7 +82,7 @@ jobs:
           # in against whatever this is, defaulting to "jwt" if omitted, so
           # without it every login 403s against a mount that isn't ours.
           path: github-actions
-          role: demo-stackship
+          role: amr-stackship
           # Fixed audience, independent of VAULT_ADDR (which varies per
           # machine — often a private address like 127.0.0.1). Must match
           # bound_audiences in infra/vault-add-tenant.sh exactly.
@@ -86,7 +91,7 @@ jobs:
           # so they aren't printed and don't leak into child processes broadly.
           exportEnv: false
           secrets: |
-            secret/data/demo/stackship * | APP_
+            secret/data/amr/stackship * | APP_
 
       # Write env to an in-memory tmpfs file that we delete right after run.
       # Never persisted to the host disk.
@@ -101,10 +106,18 @@ jobs:
           chmod 600 "$RUNTIME_ENV"
 
       # W2: build on the run machine (D3, accepted MVP limitation).
+      # BuildKit + inline cache + --cache-from the last image makes repeat
+      # deploys reuse unchanged layers (deps, base image) instead of rebuilding
+      # from scratch — much faster day-2 deploys.
       - name: Build image
+        env:
+          DOCKER_BUILDKIT: "1"
         run: |
           cd "$APP_DIR"
-          docker build -t "$APP_NAME:${{ github.sha }}" -t "$APP_NAME:current" .
+          docker build \
+            --cache-from "$APP_NAME:current" \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            -t "$APP_NAME:${{ github.sha }}" -t "$APP_NAME:current" .
 
       # W5: capture the currently-running image so we can roll back.
       - name: Record previous image for rollback
@@ -123,7 +136,7 @@ jobs:
             --name "${APP_NAME}-new" \
             --network "$NETWORK" \
             --restart unless-stopped \
-            --memory=512m --cpus=1 \
+            --memory=512m --cpus=0.5 \
             --env-file "$RUNTIME_ENV" \
             -p 127.0.0.1:$APP_PORT:$CONTAINER_PORT \
             "$APP_NAME:${{ github.sha }}"
@@ -175,7 +188,7 @@ jobs:
         run: |
           STATUS="unhealthy"
           if [ "${{ steps.health.outcome }}" = "success" ]; then STATUS="healthy"; fi
-          curl -sf -X POST "https://app.opsdeploy.io/api/deployments/cmrnm7e6h00061cnqmndsc8z5/health-callback" \
+          curl -sf -X POST "https://app.opsdeploy.io/api/deployments/cmrs04ch7000mzzik9ou2vhp7/health-callback" \
             -H "Authorization: Bearer ${{ steps.oidc.outputs.result }}" \
             -H "Content-Type: application/json" \
             -d "{\"status\":\"$STATUS\",\"commitSha\":\"${{ github.sha }}\"}"
