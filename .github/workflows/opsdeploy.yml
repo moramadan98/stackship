@@ -6,14 +6,14 @@
 #   omar-stackship          = {tenant}-{project}, e.g. acme-shop
 #   main            = deploy branch, e.g. main
 #   omar-stackship      = self-hosted runner label = APP_NAME
-#   30000          = port allocated from the central registry (§3.2)
+#   30001          = port allocated from the central registry (§3.2)
 #   8080    = port the app listens on inside the container
 #   http://127.0.0.1:8200        = https://vault.opsdeploy.io
 #   omar-stackship        = Vault JWT role bound to this repo+branch
 #   secret/data/omar/stackship      = Vault KV path for this app's env, e.g. secret/data/acme/shop
 #   /       = client-defined health path, e.g. /health   (D7)
 #   200     = client-defined expected status, e.g. 200   (D7)
-#   https://app.opsdeploy.io/api/deployments/cmruvpyyv000la00nfqqbmrbp/health-callback      = control-plane health-callback endpoint for this deployment
+#   https://app.opsdeploy.io/api/deployments/cmruvwwra000sa00n45gj2s2n/health-callback      = control-plane health-callback endpoint for this deployment
 #   https://opsdeploy.io/health-callback = OIDC audience the callback route verifies against
 #
 # Deviation from /reference/opsdeploy-workflow.yml: that draft never reported
@@ -47,7 +47,7 @@ jobs:
 
     env:
       APP_NAME: omar-stackship
-      APP_PORT: "30000"
+      APP_PORT: "30001"
       CONTAINER_PORT: "8080"
       NETWORK: net-omar-stackship
       # W3: isolated workspace path, never a shared fixed dir.
@@ -188,7 +188,7 @@ jobs:
         run: |
           STATUS="unhealthy"
           if [ "${{ steps.health.outcome }}" = "success" ]; then STATUS="healthy"; fi
-          curl -sf -X POST "https://app.opsdeploy.io/api/deployments/cmruvpyyv000la00nfqqbmrbp/health-callback" \
+          curl -sf -X POST "https://app.opsdeploy.io/api/deployments/cmruvwwra000sa00n45gj2s2n/health-callback" \
             -H "Authorization: Bearer ${{ steps.oidc.outputs.result }}" \
             -H "Content-Type: application/json" \
             -d "{\"status\":\"$STATUS\",\"commitSha\":\"${{ github.sha }}\"}"
