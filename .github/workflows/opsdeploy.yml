@@ -3,17 +3,17 @@
 # OpsDeploy-generated deploy workflow.
 # Placeholders wrapped in <<...>> are filled by the orchestrator per deploy
 # (packages/core/src/render-workflow.ts):
-#   amr-stackship          = {tenant}-{project}, e.g. acme-shop
+#   omar-stackship          = {tenant}-{project}, e.g. acme-shop
 #   main            = deploy branch, e.g. main
-#   amr-stackship      = self-hosted runner label = APP_NAME
+#   omar-stackship      = self-hosted runner label = APP_NAME
 #   30000          = port allocated from the central registry (§3.2)
 #   8080    = port the app listens on inside the container
 #   http://127.0.0.1:8200        = https://vault.opsdeploy.io
-#   amr-stackship        = Vault JWT role bound to this repo+branch
-#   secret/data/amr/stackship      = Vault KV path for this app's env, e.g. secret/data/acme/shop
+#   omar-stackship        = Vault JWT role bound to this repo+branch
+#   secret/data/omar/stackship      = Vault KV path for this app's env, e.g. secret/data/acme/shop
 #   /       = client-defined health path, e.g. /health   (D7)
 #   200     = client-defined expected status, e.g. 200   (D7)
-#   https://app.opsdeploy.io/api/deployments/cmrs0e4pp001izzik3rmaggy0/health-callback      = control-plane health-callback endpoint for this deployment
+#   https://app.opsdeploy.io/api/deployments/cmruvpyyv000la00nfqqbmrbp/health-callback      = control-plane health-callback endpoint for this deployment
 #   https://opsdeploy.io/health-callback = OIDC audience the callback route verifies against
 #
 # Deviation from /reference/opsdeploy-workflow.yml: that draft never reported
@@ -23,7 +23,7 @@
 # that loop — same GitHub OIDC mechanism already used for the Vault step
 # (D13), so no new static secret is introduced.
 
-name: Deploy amr-stackship
+name: Deploy omar-stackship
 
 on:
   push:
@@ -37,21 +37,21 @@ permissions:
 
 # Prevent two runs of the same app from racing on the same machine.
 concurrency:
-  group: deploy-amr-stackship
+  group: deploy-omar-stackship
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Build & deploy amr-stackship
-    runs-on: [self-hosted, amr-stackship]
+    name: Build & deploy omar-stackship
+    runs-on: [self-hosted, omar-stackship]
 
     env:
-      APP_NAME: amr-stackship
+      APP_NAME: omar-stackship
       APP_PORT: "30000"
       CONTAINER_PORT: "8080"
-      NETWORK: net-amr-stackship
+      NETWORK: net-omar-stackship
       # W3: isolated workspace path, never a shared fixed dir.
-      APP_DIR: /srv/opsdeploy/amr-stackship
+      APP_DIR: /srv/opsdeploy/omar-stackship
       VAULT_ADDR: http://127.0.0.1:8200
 
     steps:
@@ -82,7 +82,7 @@ jobs:
           # in against whatever this is, defaulting to "jwt" if omitted, so
           # without it every login 403s against a mount that isn't ours.
           path: github-actions
-          role: amr-stackship
+          role: omar-stackship
           # Fixed audience, independent of VAULT_ADDR (which varies per
           # machine — often a private address like 127.0.0.1). Must match
           # bound_audiences in infra/vault-add-tenant.sh exactly.
@@ -91,7 +91,7 @@ jobs:
           # so they aren't printed and don't leak into child processes broadly.
           exportEnv: false
           secrets: |
-            secret/data/amr/stackship * | APP_
+            secret/data/omar/stackship * | APP_
 
       # Write env to an in-memory tmpfs file that we delete right after run.
       # Never persisted to the host disk.
@@ -188,7 +188,7 @@ jobs:
         run: |
           STATUS="unhealthy"
           if [ "${{ steps.health.outcome }}" = "success" ]; then STATUS="healthy"; fi
-          curl -sf -X POST "https://app.opsdeploy.io/api/deployments/cmrs0e4pp001izzik3rmaggy0/health-callback" \
+          curl -sf -X POST "https://app.opsdeploy.io/api/deployments/cmruvpyyv000la00nfqqbmrbp/health-callback" \
             -H "Authorization: Bearer ${{ steps.oidc.outputs.result }}" \
             -H "Content-Type: application/json" \
             -d "{\"status\":\"$STATUS\",\"commitSha\":\"${{ github.sha }}\"}"
